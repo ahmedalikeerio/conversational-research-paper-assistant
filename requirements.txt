@@ -7,3 +7,5 @@ langchain-community
 faiss-cpu
 langsmith
 python-dotenv
+arxiv
+mymupdf

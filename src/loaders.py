@@ -1,5 +1,4 @@
 from langchain_community.document_loaders import PyPDFLoader, ArxivLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # function to load the pf
 def load_pdf(pdf_path):
