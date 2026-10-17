@@ -1,5 +1,6 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
+# This prompts is for rewriting the follow up questions
 contextualize_prompt = ChatPromptTemplate.from_messages([
     (
         'system',
@@ -21,6 +22,7 @@ contextualize_prompt = ChatPromptTemplate.from_messages([
 ]
 )
 
+# prompt to generate the answer using llm
 answer_prompt = ChatPromptTemplate.from_messages([
     (
         'system',
