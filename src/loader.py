@@ -6,7 +6,11 @@ def load_and_split_pdf(pdf_path):
 
     # load the pdf using path into documents
     loader = PyPDFLoader(pdf_path)
-    documnets = loader.load()
+    documents = loader.load()
+    print("Documents loaded:", len(documents))
+
+    for i, doc in enumerate(documents):
+        print(i, len(doc.page_content))
 
     # split the pdf into chunks
     splitter = RecursiveCharacterTextSplitter(
@@ -14,6 +18,7 @@ def load_and_split_pdf(pdf_path):
         chunk_overlap = 100
     )
 
-    chunks = splitter.split_documents(documnets)
+    chunks = splitter.split_documents(documents)
+    print("Chunks created:", len(chunks))
 
     return chunks

@@ -33,8 +33,8 @@ def build_rag_chain(retriever):
     # function to run the rag chain
     def run_rag(inputs):
 
-        question = inputs('question')
-        history = inputs('chat_history')
+        question = inputs['question']
+        history = inputs['chat_history']
 
         # create the standalone question using question_rewriter chain
         standalone_question = (question_rewriter.invoke(
@@ -68,7 +68,7 @@ def build_rag_chain(retriever):
         # return the answer and relevent retrieved docs
         return {
             'answer':answer,
-            'source':docs
+            'sources':docs
         }
 
     # intialize the runnable lambda with run_rag function
@@ -79,7 +79,8 @@ def build_rag_chain(retriever):
         rag,
         get_session_history,
         input_messages_key='question',
-        history_messages_key='history'
+        history_messages_key='chat_history',
+        output_messages_key='answer'
     )
 
 
