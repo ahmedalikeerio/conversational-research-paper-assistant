@@ -6,35 +6,49 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 from src.prompts import contextualize_prompt,answer_prompt
 from src.history import get_session_history
 
-# intialize the llm model
-llm= ChatGroq(
-    model='qwen/qwen3.8-27b',
-    temperature=0,
-    max_tokens=500
-)
-
-# question rewriter chain
-question_rewriter = (contextualize_prompt
-                      | llm
-                      | StrOutputParser()
-)
 
 # format retrieved docs, preserves the page information
 def format_docs(docs):
-    return "\n\n".join(
-        f"Page: {doc.metadata.get('page')}\n"
-        f"{doc.page_content}"
-        for doc in docs
-    )
+    formated =[]
+    for doc in docs:
+        page = doc.metadeta.get(
+            "page",
+            'N/A'
+        )
+
+        formated.append(
+            f"page: {page}\n"
+            f'{doc.page_content}'
+        )
+    return "\n\n".join(formated)
 
 # function to build the converstational rag chain
-def build_rag_chain(retriever):
+def build_rag_chain(retriever,
+                    temperature=0.0):
+    # intialize the llm model
+    llm= ChatGroq(
+        model='qwen/qwen3.8-27b',
+        temperature=0,
+        max_tokens=500
+    )
 
+# question rewriter chain
+    question_rewriter = (contextualize_prompt
+                      | llm
+                      | StrOutputParser()
+    )
+    # build the answer chain
+    answer_chain = (
+                answer_prompt
+                | llm
+                | StrOutputParser()
+    )
+    
     # function to run the rag chain
     def run_rag(inputs):
 
         question = inputs['question']
-        history = inputs['chat_history']
+        history = inputs.get("chat_history",[])
 
         # create the standalone question using question_rewriter chain
         standalone_question = (question_rewriter.invoke(
@@ -50,12 +64,6 @@ def build_rag_chain(retriever):
         # create the context
         context = format_docs(docs)
 
-        # build the answer chain
-        answer_chain = (
-            answer_prompt
-            | llm
-            | StrOutputParser()
-        )
 
         # invoke the answer_chain
         answer = answer_chain.invoke(
@@ -75,13 +83,14 @@ def build_rag_chain(retriever):
     rag = RunnableLambda(run_rag)
 
     # finally return the runnables
-    return RunnableWithMessageHistory(
+    converataion= RunnableWithMessageHistory(
         rag,
         get_session_history,
         input_messages_key='question',
         history_messages_key='chat_history',
         output_messages_key='answer'
     )
+    return converataion 
 
 
 
