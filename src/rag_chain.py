@@ -11,7 +11,7 @@ from src.history import get_session_history
 def format_docs(docs):
     formated =[]
     for doc in docs:
-        page = doc.metadeta.get(
+        page = doc.metadata.get(
             "page",
             'N/A'
         )
@@ -51,12 +51,18 @@ def build_rag_chain(retriever,
         history = inputs.get("chat_history",[])
 
         # create the standalone question using question_rewriter chain
-        standalone_question = (question_rewriter.invoke(
-            {
-                "question": question,
-                "chat_history": history
-            }
-        ))
+        if history:
+            standalone_question = (
+                question_rewriter.invoke({
+                    "chat_history":history,
+                    "question":question
+                })
+            )
+        # First question already has no prior
+        # conversational dependency.
+        else: 
+            standalone_question = question
+
 
         # then retrieve the relevent documnets for standalone question
         docs = retriever.invoke(standalone_question)
@@ -76,7 +82,9 @@ def build_rag_chain(retriever,
         # return the answer and relevent retrieved docs
         return {
             'answer':answer,
-            'sources':docs
+            'sources':docs,
+            'original_question':question,
+            'standalone_question': standalone_question
         }
 
     # intialize the runnable lambda with run_rag function

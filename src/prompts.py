@@ -5,14 +5,29 @@ contextualize_prompt = ChatPromptTemplate.from_messages([
     (
         'system',
         """
-        Rewrite the latest user question into a standalone question.
+        You rewrite the conversational follow-up questions into
+        standalone questions for document retrieval. 
 
-        Use the previous converstaion if necessary.
+        use the conversation hostory when necessary.
 
-        Do not answer the question.
+        Rules:
+        1. Do not answer the question.
+        2. only rewrite the question
+        3. Preserve the user's original intent.
+        4. If the question is already standalone, return it unchanged.
+        5. don't introduce facts that were not mentioned in the conversation.
 
-        if the question is already standalone then return it unchanged. 
-        """
+        Example:
+
+        User: What is multi-head attention?
+        Assistant: Multi-head attention allows...
+
+        New question:
+        Why is it useful?
+
+        Standalone question:
+        Why is multi-head attention useful?
+            """
     ),
     MessagesPlaceholder(variable_name='chat_history'),
     (
@@ -27,17 +42,25 @@ answer_prompt = ChatPromptTemplate.from_messages([
     (
         'system',
         """
-        You are an Research Asssitant.
+        You are an Research-paper Asssitant.
 
         Answer the user question using only the provided research-paper context.
 
-        If the answer is not present in the context, say:
+        Rules:
 
-        The provided paper context doesn't contain the enough information.
+        1. Ground your answer in the provided context.
 
-        Answer the questions technically and conceptually correct.
+        2. If the context not contain enough infpormation say that
+        the answer can't be found in the paper.
 
-        context:
+        3. Don't invent information.
+
+        4. Conversation history can helo understand the user's 
+        itent, but factual must come from the supplied paper context.
+
+        5. Explain technical concepts clearly.
+
+        Research Paper context:
         {context}
         """
     ),

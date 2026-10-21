@@ -1,12 +1,26 @@
 # ============================================================
 # app.py
 # Conversational Research Paper Assistant
-# Phase 1:
+#
+# Phase 1
 #   - PDF Upload
-#   - arXiv Loading
-#   - Dynamic Chunk Size / Chunk Overlap
-#   - Conversational RAG
+#   - arXiv Paper Loading
+#   - Dynamic Chunk Size
+#   - Dynamic Chunk Overlap
+#
+# Phase 2
+#   - Dynamic Retriever k
+#   - Similarity / MMR Retrieval
+#   - Dynamic LLM Temperature
+#   - Active RAG Configuration
+#
+# Phase 3
+#   - History-Aware Conversational Retrieval
+#   - Standalone Question Rewriting
+#   - RAG Debug Panel
+#   - Original vs Rewritten Question Inspection
 # ============================================================
+
 
 # ------------------------------------------------------------
 # 1. LOAD ENVIRONMENT VARIABLES FIRST
@@ -23,17 +37,26 @@ load_dotenv()
 
 import os
 import uuid
+
 import streamlit as st
 
-from src.loaders import load_pdf, load_arxiv
-from src.splitter import split_documents
+from src.loaders import (
+    load_pdf,
+    load_arxiv
+)
+
+from src.splitters import (
+    split_documents
+)
 
 from src.vectorstore import (
     create_vectorstore,
     create_retriever
 )
 
-from src.rag_chain import build_rag_chain
+from src.rag_chain import (
+    build_rag_chain
+)
 
 
 # ------------------------------------------------------------
@@ -47,16 +70,15 @@ st.set_page_config(
 )
 
 
-# ------------------------------------------------------------
-# 4. HELPER FUNCTIONS
-# ------------------------------------------------------------
+# ============================================================
+# HELPER FUNCTIONS
+# ============================================================
+
 
 def save_uploaded_pdf(uploaded_file):
     """
-    Save Streamlit UploadedFile to the local uploads directory.
-
-    PyPDFLoader works with a file path, so we first save the
-    uploaded PDF locally.
+    Save a Streamlit UploadedFile locally so PyPDFLoader
+    can read it using a normal file path.
     """
 
     os.makedirs(
@@ -64,7 +86,6 @@ def save_uploaded_pdf(uploaded_file):
         exist_ok=True
     )
 
-    # Prevent directory-related issues from uploaded filenames
     safe_filename = os.path.basename(
         uploaded_file.name
     )
@@ -84,25 +105,22 @@ def save_uploaded_pdf(uploaded_file):
 
 def create_new_session():
     """
-    Create a new conversation ID.
+    Create a unique LangChain conversation session.
 
-    This is important when:
-    - user changes paper
-    - user clears chat
-
-    Otherwise old LangChain conversation history could
-    accidentally affect a new paper.
+    A new session is created when:
+    - a new paper is processed
+    - the user clears the chat
     """
 
-    return str(uuid.uuid4())
+    return str(
+        uuid.uuid4()
+    )
 
 
 def get_answer_text(answer):
     """
-    Safely convert the RAG answer to displayable text.
-
-    Usually our chain returns a string, but this also supports
-    AIMessage-like objects.
+    Convert either a string or an AIMessage-like
+    object into displayable text.
     """
 
     if hasattr(answer, "content"):
@@ -111,18 +129,33 @@ def get_answer_text(answer):
     return str(answer)
 
 
-def get_source_label(doc, source_number):
+def get_source_label(
+    doc,
+    source_number
+):
     """
-    Generate a readable label for a retrieved source.
+    Create a human-readable label for retrieved sources.
+
+    Local PDFs usually contain page metadata.
+    arXiv documents may instead contain title metadata.
     """
 
-    metadata = doc.metadata or {}
+    metadata = (
+        doc.metadata
+        if doc.metadata
+        else {}
+    )
 
-    page = metadata.get("page")
+    page = metadata.get(
+        "page"
+    )
 
     if isinstance(page, int):
-        # PyPDFLoader normally uses zero-based page numbers
-        return f"Source {source_number} — Page {page + 1}"
+
+        return (
+            f"Source {source_number} "
+            f"— Page {page + 1}"
+        )
 
     title = (
         metadata.get("Title")
@@ -130,14 +163,136 @@ def get_source_label(doc, source_number):
     )
 
     if title:
-        return f"Source {source_number} — {title}"
 
-    return f"Source {source_number}"
+        return (
+            f"Source {source_number} "
+            f"— {title}"
+        )
+
+    return (
+        f"Source {source_number}"
+    )
 
 
-# ------------------------------------------------------------
-# 5. INITIALIZE STREAMLIT SESSION STATE
-# ------------------------------------------------------------
+def display_sources(sources):
+    """
+    Display retrieved chunks inside Streamlit.
+    """
+
+    if not sources:
+        return
+
+    with st.expander(
+        "📖 View Sources"
+    ):
+
+        for index, doc in enumerate(
+            sources,
+            start=1
+        ):
+
+            label = get_source_label(
+                doc,
+                index
+            )
+
+            st.markdown(
+                f"**{label}**"
+            )
+
+            st.write(
+                doc.page_content[:700]
+            )
+
+            st.divider()
+
+
+def display_debug_info(
+    original_question,
+    standalone_question,
+    sources
+):
+    """
+    Display conversational RAG internals.
+    """
+
+    with st.expander(
+        "🛠️ RAG Debug Information"
+    ):
+
+        # ---------------------------------------------
+        # Original user question
+        # ---------------------------------------------
+
+        st.markdown(
+            "### Original Question"
+        )
+
+        st.code(
+            original_question
+        )
+
+        # ---------------------------------------------
+        # Question actually sent to retriever
+        # ---------------------------------------------
+
+        st.markdown(
+            "### Retrieval Question"
+        )
+
+        st.code(
+            standalone_question
+        )
+
+        # ---------------------------------------------
+        # Retrieval information
+        # ---------------------------------------------
+
+        st.markdown(
+            "### Retrieval Details"
+        )
+
+        st.write(
+            f"**Retrieved chunks:** "
+            f"{len(sources)}"
+        )
+
+        if st.session_state.paper_info:
+
+            info = (
+                st.session_state.paper_info
+            )
+
+            st.write(
+                f"**Search type:** "
+                f"{info['search_type']}"
+            )
+
+            st.write(
+                f"**k:** "
+                f"{info['k']}"
+            )
+
+            st.write(
+                f"**Chunk size:** "
+                f"{info['chunk_size']}"
+            )
+
+            st.write(
+                f"**Chunk overlap:** "
+                f"{info['chunk_overlap']}"
+            )
+
+            st.write(
+                f"**Temperature:** "
+                f"{info['temperature']}"
+            )
+
+
+# ============================================================
+# SESSION STATE INITIALIZATION
+# ============================================================
+
 
 if "rag_chain" not in st.session_state:
     st.session_state.rag_chain = None
@@ -152,30 +307,37 @@ if "paper_info" not in st.session_state:
 
 
 if "session_id" not in st.session_state:
-    st.session_state.session_id = create_new_session()
+    st.session_state.session_id = (
+        create_new_session()
+    )
 
 
-# ------------------------------------------------------------
-# 6. HEADER
-# ------------------------------------------------------------
+# ============================================================
+# MAIN HEADER
+# ============================================================
 
-st.title("📚 Conversational Research Paper Assistant")
+
+st.title(
+    "📚 Conversational Research Paper Assistant"
+)
+
 
 st.caption(
     "Upload a research paper or load one from arXiv, "
-    "then ask grounded questions about its content."
+    "configure the RAG pipeline, and ask grounded "
+    "conversational questions."
 )
 
 
 # ============================================================
-# SIDEBAR
+# SIDEBAR — PAPER SOURCE
 # ============================================================
 
-# ------------------------------------------------------------
-# 7. PAPER SOURCE
-# ------------------------------------------------------------
 
-st.sidebar.header("📄 Paper Source")
+st.sidebar.header(
+    "📄 Paper Source"
+)
+
 
 source_type = st.sidebar.radio(
     "Choose paper source",
@@ -190,34 +352,53 @@ uploaded_file = None
 arxiv_id = None
 
 
+# ------------------------------------------------------------
+# PDF Source
+# ------------------------------------------------------------
+
 if source_type == "Upload PDF":
 
-    uploaded_file = st.sidebar.file_uploader(
-        "Upload a research paper",
-        type=["pdf"],
-        help="Upload a text-readable PDF research paper."
-    )
-
-
-else:
-
-    arxiv_id = st.sidebar.text_input(
-        "Enter arXiv ID",
-        placeholder="Example: 1706.03762",
-        help=(
-            "Enter an arXiv identifier. "
-            "For example, Attention Is All You Need: 1706.03762"
+    uploaded_file = (
+        st.sidebar.file_uploader(
+            "Upload a research paper",
+            type=["pdf"],
+            help=(
+                "Upload a PDF containing "
+                "extractable text."
+            )
         )
     )
 
 
 # ------------------------------------------------------------
-# 8. DOCUMENT PROCESSING SETTINGS
+# arXiv Source
 # ------------------------------------------------------------
+
+else:
+
+    arxiv_id = (
+        st.sidebar.text_input(
+            "Enter arXiv ID",
+            placeholder="Example: 1706.03762",
+            help=(
+                "Enter the arXiv identifier "
+                "of the research paper."
+            )
+        )
+    )
+
+
+# ============================================================
+# SIDEBAR — CHUNKING SETTINGS
+# ============================================================
+
 
 st.sidebar.divider()
 
-st.sidebar.header("⚙️ Document Processing")
+
+st.sidebar.header(
+    "✂️ Chunking Settings"
+)
 
 
 chunk_size = st.sidebar.slider(
@@ -227,8 +408,8 @@ chunk_size = st.sidebar.slider(
     value=1000,
     step=100,
     help=(
-        "Maximum approximate size of each text chunk "
-        "sent into the embedding pipeline."
+        "Controls the approximate maximum size "
+        "of each text chunk."
     )
 )
 
@@ -240,7 +421,8 @@ chunk_overlap = st.sidebar.slider(
     value=150,
     step=25,
     help=(
-        "Amount of overlapping text between neighboring chunks."
+        "Controls how much neighboring chunks "
+        "overlap."
     )
 )
 
@@ -248,13 +430,112 @@ chunk_overlap = st.sidebar.slider(
 if chunk_overlap >= chunk_size:
 
     st.sidebar.warning(
-        "⚠️ Chunk overlap must be smaller than chunk size."
+        "⚠️ Chunk overlap must be smaller "
+        "than chunk size."
     )
 
 
-# ------------------------------------------------------------
-# 9. PROCESS PAPER BUTTON
-# ------------------------------------------------------------
+# ============================================================
+# SIDEBAR — RETRIEVAL SETTINGS
+# ============================================================
+
+
+st.sidebar.divider()
+
+
+st.sidebar.header(
+    "🔎 Retrieval Settings"
+)
+
+
+k = st.sidebar.slider(
+    "Retrieved Chunks (k)",
+    min_value=1,
+    max_value=10,
+    value=4,
+    step=1,
+    help=(
+        "Number of chunks retrieved from "
+        "the vector store for each question."
+    )
+)
+
+
+search_type = st.sidebar.selectbox(
+    "Retrieval Strategy",
+    options=[
+        "similarity",
+        "mmr"
+    ],
+    index=0,
+    help=(
+        "Similarity returns the nearest chunks. "
+        "MMR balances relevance and diversity."
+    )
+)
+
+
+# ============================================================
+# SIDEBAR — MODEL SETTINGS
+# ============================================================
+
+
+st.sidebar.divider()
+
+
+st.sidebar.header(
+    "🤖 Model Settings"
+)
+
+
+temperature = st.sidebar.slider(
+    "Temperature",
+    min_value=0.0,
+    max_value=1.0,
+    value=0.0,
+    step=0.1,
+    help=(
+        "Controls randomness in LLM generation. "
+        "Lower values are generally preferable "
+        "for grounded research QA."
+    )
+)
+
+
+# ============================================================
+# PHASE 3 — DEVELOPER TOOLS
+# ============================================================
+
+
+st.sidebar.divider()
+
+
+st.sidebar.header(
+    "🛠️ Developer Tools"
+)
+
+
+show_debug = st.sidebar.toggle(
+    "Show RAG Debug Information",
+    value=False,
+    help=(
+        "Inspect the original question, "
+        "history-aware rewritten retrieval question, "
+        "and retrieval configuration."
+    )
+)
+
+
+st.sidebar.caption(
+    "RAG configuration changes take effect "
+    "after clicking **Process Paper**."
+)
+
+
+# ============================================================
+# PROCESS PAPER BUTTON
+# ============================================================
+
 
 process_button = st.sidebar.button(
     "🚀 Process Paper",
@@ -264,19 +545,21 @@ process_button = st.sidebar.button(
 
 
 # ============================================================
-# PAPER PROCESSING
+# PAPER PROCESSING PIPELINE
 # ============================================================
+
 
 if process_button:
 
     # --------------------------------------------------------
-    # Validate chunk settings
+    # Validate chunk configuration
     # --------------------------------------------------------
 
     if chunk_overlap >= chunk_size:
 
         st.error(
-            "Chunk overlap must be smaller than chunk size."
+            "❌ Chunk overlap must be smaller "
+            "than chunk size."
         )
 
     else:
@@ -287,39 +570,54 @@ if process_button:
                 "Processing research paper..."
             ):
 
-                # ============================================
+                # =================================================
                 # STEP 1 — LOAD DOCUMENT
-                # ============================================
+                # =================================================
 
                 if source_type == "Upload PDF":
 
                     if uploaded_file is None:
 
                         raise ValueError(
-                            "Please upload a PDF before processing."
+                            "Please upload a PDF "
+                            "before processing."
                         )
 
-                    pdf_path = save_uploaded_pdf(
-                        uploaded_file
+                    pdf_path = (
+                        save_uploaded_pdf(
+                            uploaded_file
+                        )
                     )
 
-                    documents = load_pdf(
-                        pdf_path
+                    documents = (
+                        load_pdf(
+                            pdf_path
+                        )
                     )
 
-                    paper_name = uploaded_file.name
+                    paper_name = (
+                        uploaded_file.name
+                    )
 
+                # =================================================
+                # STEP 1B — LOAD arXiv PAPER
+                # =================================================
 
                 else:
 
-                    if not arxiv_id or not arxiv_id.strip():
+                    if (
+                        not arxiv_id
+                        or not arxiv_id.strip()
+                    ):
 
                         raise ValueError(
-                            "Please enter an arXiv paper ID."
+                            "Please enter an arXiv ID."
                         )
 
-                    documents = load_arxiv(
-                        arxiv_id.strip()
+                    documents = (
+                        load_arxiv(
+                            arxiv_id.strip()
+                        )
                     )
 
                     metadata = (
@@ -334,74 +632,116 @@ if process_button:
                         or arxiv_id.strip()
                     )
 
-
-                # ============================================
+                # =================================================
                 # STEP 2 — SPLIT DOCUMENTS
-                # ============================================
+                # =================================================
 
-                chunks = split_documents(
-                    documents=documents,
-                    chunk_size=chunk_size,
-                    chunk_overlap=chunk_overlap
+                chunks = (
+                    split_documents(
+                        documents=documents,
+                        chunk_size=chunk_size,
+                        chunk_overlap=chunk_overlap
+                    )
                 )
 
-
-                # ============================================
+                # =================================================
                 # STEP 3 — CREATE EMBEDDINGS + FAISS
-                # ============================================
+                # =================================================
 
-                vector_store = create_vectorstore(
-                    chunks
+                vector_store = (
+                    create_vectorstore(
+                        chunks
+                    )
                 )
 
+                # =================================================
+                # STEP 4 — SAFE RETRIEVAL k
+                # =================================================
 
-                # ============================================
-                # STEP 4 — CREATE RETRIEVER
-                # ============================================
-
-                retriever = create_retriever(
-                    vector_store
+                effective_k = min(
+                    k,
+                    len(chunks)
                 )
 
+                # =================================================
+                # STEP 5 — CREATE RETRIEVER
+                # =================================================
 
-                # ============================================
-                # STEP 5 — BUILD CONVERSATIONAL RAG
-                # ============================================
-
-                rag_chain = build_rag_chain(
-                    retriever
+                retriever = (
+                    create_retriever(
+                        vector_store=vector_store,
+                        k=effective_k,
+                        search_type=search_type
+                    )
                 )
 
+                # =================================================
+                # STEP 6 — BUILD CONVERSATIONAL RAG
+                # =================================================
 
-                # ============================================
-                # STEP 6 — STORE IN STREAMLIT STATE
-                # ============================================
+                rag_chain = (
+                    build_rag_chain(
+                        retriever=retriever,
+                        temperature=temperature
+                    )
+                )
 
-                st.session_state.rag_chain = rag_chain
+                # =================================================
+                # STEP 7 — SAVE ACTIVE RAG CHAIN
+                # =================================================
+
+                st.session_state.rag_chain = (
+                    rag_chain
+                )
+
+                # =================================================
+                # STEP 8 — SAVE PAPER / RAG INFORMATION
+                # =================================================
 
                 st.session_state.paper_info = {
-                    "name": paper_name,
-                    "source": source_type,
-                    "documents": len(documents),
-                    "chunks": len(chunks),
-                    "chunk_size": chunk_size,
-                    "chunk_overlap": chunk_overlap
+
+                    "name":
+                        paper_name,
+
+                    "source":
+                        source_type,
+
+                    "documents":
+                        len(documents),
+
+                    "chunks":
+                        len(chunks),
+
+                    "chunk_size":
+                        chunk_size,
+
+                    "chunk_overlap":
+                        chunk_overlap,
+
+                    "k":
+                        effective_k,
+
+                    "search_type":
+                        search_type,
+
+                    "temperature":
+                        temperature
                 }
 
+                # =================================================
+                # STEP 9 — RESET OLD CONVERSATION
+                # =================================================
 
-                # New paper = new conversation
                 st.session_state.messages = []
 
                 st.session_state.session_id = (
                     create_new_session()
                 )
 
-
             st.success(
                 "✅ Paper processed successfully. "
                 "You can now ask questions."
             )
-
 
         except Exception as error:
 
@@ -411,47 +751,96 @@ if process_button:
 
 
 # ============================================================
-# ACTIVE PAPER INFORMATION
+# SIDEBAR — ACTIVE PAPER INFO
 # ============================================================
+
 
 if st.session_state.paper_info:
 
-    info = st.session_state.paper_info
+    info = (
+        st.session_state.paper_info
+    )
 
     st.sidebar.divider()
+
+
+    # --------------------------------------------------------
+    # Active Paper
+    # --------------------------------------------------------
 
     st.sidebar.subheader(
         "📚 Active Paper"
     )
 
+
     st.sidebar.write(
         f"**Name:** {info['name']}"
     )
+
 
     st.sidebar.write(
         f"**Source:** {info['source']}"
     )
 
-    st.sidebar.write(
-        f"**Documents / Pages:** {info['documents']}"
-    )
 
     st.sidebar.write(
-        f"**Chunks:** {info['chunks']}"
+        f"**Documents / Pages:** "
+        f"{info['documents']}"
     )
 
-    st.sidebar.write(
-        f"**Chunk Size:** {info['chunk_size']}"
-    )
 
     st.sidebar.write(
-        f"**Chunk Overlap:** {info['chunk_overlap']}"
+        f"**Chunks Created:** "
+        f"{info['chunks']}"
+    )
+
+
+    # --------------------------------------------------------
+    # Active RAG Configuration
+    # --------------------------------------------------------
+
+    st.sidebar.divider()
+
+
+    st.sidebar.subheader(
+        "🧠 Active RAG Config"
+    )
+
+
+    st.sidebar.write(
+        f"**Chunk Size:** "
+        f"{info['chunk_size']}"
+    )
+
+
+    st.sidebar.write(
+        f"**Chunk Overlap:** "
+        f"{info['chunk_overlap']}"
+    )
+
+
+    st.sidebar.write(
+        f"**Retriever k:** "
+        f"{info['k']}"
+    )
+
+
+    st.sidebar.write(
+        f"**Search Type:** "
+        f"{info['search_type']}"
+    )
+
+
+    st.sidebar.write(
+        f"**Temperature:** "
+        f"{info['temperature']}"
     )
 
 
 # ============================================================
 # CLEAR CHAT
 # ============================================================
+
 
 if st.session_state.rag_chain is not None:
 
@@ -462,11 +851,17 @@ if st.session_state.rag_chain is not None:
         use_container_width=True
     ):
 
-        # Clear Streamlit UI messages
+        # ---------------------------------------------
+        # Clear visible Streamlit messages
+        # ---------------------------------------------
+
         st.session_state.messages = []
 
-        # Start a fresh LangChain conversation
-        # while keeping the current paper/index
+        # ---------------------------------------------
+        # Create fresh LangChain history
+        # while keeping same processed paper
+        # ---------------------------------------------
+
         st.session_state.session_id = (
             create_new_session()
         )
@@ -475,55 +870,62 @@ if st.session_state.rag_chain is not None:
 
 
 # ============================================================
-# MAIN CHAT AREA
+# MAIN CONTENT — NO PAPER ACTIVE
 # ============================================================
 
-# ------------------------------------------------------------
-# 10. NO PAPER PROCESSED YET
-# ------------------------------------------------------------
 
 if st.session_state.rag_chain is None:
 
     st.info(
-        "👈 Upload a PDF or enter an arXiv paper ID "
-        "from the sidebar, configure the document settings, "
-        "and click **Process Paper**."
+        "👈 Upload a PDF or enter an arXiv paper ID, "
+        "configure your RAG settings, and click "
+        "**Process Paper**."
     )
+
 
     st.markdown(
         """
-### How it works
+### 🚀 How to use the assistant
 
-1. Select **Upload PDF** or **arXiv Paper**
-2. Choose chunk size and overlap
-3. Click **Process Paper**
-4. Ask questions about the research paper
-5. Ask follow-up questions naturally
-6. Inspect the retrieved sources
+1. Choose **Upload PDF** or **arXiv Paper**
+2. Configure chunk size and overlap
+3. Choose retrieval `k`
+4. Select **Similarity** or **MMR**
+5. Select LLM temperature
+6. Click **Process Paper**
+7. Ask a question about the paper
+8. Ask conversational follow-up questions
+9. Inspect retrieved sources
+10. Enable **RAG Debug Information** to inspect the retrieval query
         """
     )
 
 
-# ------------------------------------------------------------
-# 11. PAPER READY — DISPLAY CHAT
-# ------------------------------------------------------------
+# ============================================================
+# MAIN CONTENT — PAPER ACTIVE
+# ============================================================
+
 
 else:
 
     paper_name = (
-        st.session_state.paper_info["name"]
+        st.session_state
+        .paper_info["name"]
     )
+
 
     st.subheader(
         f"💬 Chat with: {paper_name}"
     )
 
 
-    # --------------------------------------------------------
-    # Display previous messages
-    # --------------------------------------------------------
+    # ========================================================
+    # DISPLAY PREVIOUS CHAT MESSAGES
+    # ========================================================
 
-    for message in st.session_state.messages:
+    for message in (
+        st.session_state.messages
+    ):
 
         with st.chat_message(
             message["role"]
@@ -533,65 +935,108 @@ else:
                 message["content"]
             )
 
-            # Redisplay saved sources for assistant messages
+
+            # ------------------------------------------------
+            # Display previous sources
+            # ------------------------------------------------
+
             if (
                 message["role"] == "assistant"
                 and message.get("sources")
             ):
 
-                with st.expander(
-                    "📖 View Sources"
+                display_sources(
+                    message["sources"]
+                )
+
+
+            # ------------------------------------------------
+            # Display previously saved debug info
+            # ------------------------------------------------
+
+            if (
+                show_debug
+                and message["role"] == "assistant"
+            ):
+
+                original_question = (
+                    message.get(
+                        "original_question"
+                    )
+                )
+
+                standalone_question = (
+                    message.get(
+                        "standalone_question"
+                    )
+                )
+
+                if (
+                    original_question
+                    and standalone_question
                 ):
 
-                    for index, doc in enumerate(
-                        message["sources"],
-                        start=1
-                    ):
+                    display_debug_info(
+                        original_question=
+                            original_question,
 
-                        st.markdown(
-                            f"**{get_source_label(doc, index)}**"
-                        )
+                        standalone_question=
+                            standalone_question,
 
-                        st.write(
-                            doc.page_content[:700]
-                        )
+                        sources=
+                            message.get(
+                                "sources",
+                                []
+                            )
+                    )
 
-                        st.divider()
 
-
-    # --------------------------------------------------------
-    # 12. CHAT INPUT
-    # --------------------------------------------------------
+    # ========================================================
+    # USER CHAT INPUT
+    # ========================================================
 
     question = st.chat_input(
         "Ask a question about the research paper..."
     )
 
 
+    # ========================================================
+    # HANDLE NEW QUESTION
+    # ========================================================
+
     if question:
 
         # ----------------------------------------------------
-        # Save and display user message
+        # Save user question to Streamlit UI history
         # ----------------------------------------------------
 
         st.session_state.messages.append(
             {
-                "role": "user",
-                "content": question
+                "role":
+                    "user",
+
+                "content":
+                    question
             }
         )
 
 
-        with st.chat_message("user"):
+        # ----------------------------------------------------
+        # Display user question immediately
+        # ----------------------------------------------------
+
+        with st.chat_message(
+            "user"
+        ):
 
             st.markdown(
                 question
             )
 
 
-        # ----------------------------------------------------
-        # Invoke conversational RAG
-        # ----------------------------------------------------
+        # ====================================================
+        # EXECUTE RAG PIPELINE
+        # ====================================================
 
         try:
 
@@ -608,95 +1053,155 @@ else:
                         .rag_chain
                         .invoke(
                             {
-                                "question": question
+                                "question":
+                                    question
                             },
                             config={
                                 "configurable": {
                                     "session_id":
-                                        st.session_state.session_id
+                                        st.session_state
+                                        .session_id
                                 }
                             }
                         )
                     )
 
 
-                # --------------------------------------------
-                # Handle dictionary output
-                # --------------------------------------------
+                # =================================================
+                # READ STRUCTURED RAG RESULT
+                # =================================================
 
-                if isinstance(result, dict):
+                if isinstance(
+                    result,
+                    dict
+                ):
 
-                    answer = result.get(
-                        "answer",
-                        "I could not generate an answer."
+                    answer = (
+                        result.get(
+                            "answer",
+                            "I could not generate an answer."
+                        )
                     )
 
-                    sources = result.get(
-                        "sources",
-                        []
+
+                    sources = (
+                        result.get(
+                            "sources",
+                            []
+                        )
                     )
+
+
+                    original_question = (
+                        result.get(
+                            "original_question",
+                            question
+                        )
+                    )
+
+
+                    standalone_question = (
+                        result.get(
+                            "standalone_question",
+                            question
+                        )
+                    )
+
 
                 else:
 
+                    # Fallback if chain unexpectedly returns text
                     answer = result
+
                     sources = []
 
+                    original_question = (
+                        question
+                    )
 
-                answer_text = get_answer_text(
-                    answer
+                    standalone_question = (
+                        question
+                    )
+
+
+                # =================================================
+                # CONVERT ANSWER TO TEXT
+                # =================================================
+
+                answer_text = (
+                    get_answer_text(
+                        answer
+                    )
                 )
 
 
-                # --------------------------------------------
-                # Display answer
-                # --------------------------------------------
+                # =================================================
+                # DISPLAY ANSWER
+                # =================================================
 
                 st.markdown(
                     answer_text
                 )
 
 
-                # --------------------------------------------
-                # Display retrieved sources
-                # --------------------------------------------
+                # =================================================
+                # DISPLAY SOURCES
+                # =================================================
 
-                if sources:
-
-                    with st.expander(
-                        "📖 View Sources"
-                    ):
-
-                        for index, doc in enumerate(
-                            sources,
-                            start=1
-                        ):
-
-                            st.markdown(
-                                f"**{get_source_label(doc, index)}**"
-                            )
-
-                            st.write(
-                                doc.page_content[:700]
-                            )
-
-                            st.divider()
+                display_sources(
+                    sources
+                )
 
 
-            # ------------------------------------------------
-            # Save assistant response
-            # ------------------------------------------------
+                # =================================================
+                # PHASE 3 — DISPLAY DEBUG INFO
+                # =================================================
+
+                if show_debug:
+
+                    display_debug_info(
+                        original_question=
+                            original_question,
+
+                        standalone_question=
+                            standalone_question,
+
+                        sources=
+                            sources
+                    )
+
+
+            # =====================================================
+            # SAVE ASSISTANT RESPONSE IN STREAMLIT HISTORY
+            # =====================================================
 
             st.session_state.messages.append(
                 {
-                    "role": "assistant",
-                    "content": answer_text,
-                    "sources": sources
+                    "role":
+                        "assistant",
+
+                    "content":
+                        answer_text,
+
+                    "sources":
+                        sources,
+
+                    "original_question":
+                        original_question,
+
+                    "standalone_question":
+                        standalone_question
                 }
             )
 
 
+        # ========================================================
+        # HANDLE QUERY ERROR
+        # ========================================================
+
         except Exception as error:
 
             st.error(
-                f"❌ Error while answering the question: {error}"
+                f"❌ Error while answering "
+                f"the question: {error}"
             )
